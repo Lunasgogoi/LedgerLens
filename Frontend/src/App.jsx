@@ -22,7 +22,7 @@ function App() {
       // centerAt(x, y, transitionDurationInMs)
       fgRef.current.centerAt(node.x, node.y, 1000);
       // zoom(zoomLevel, transitionDurationInMs)
-      fgRef.current.zoom(6, 1000); 
+      fgRef.current.zoom(6, 1000);
     }
   };
 
@@ -34,33 +34,44 @@ function App() {
 
   // Create a computed version of the graph based on the selected filter
   const displayGraph = useMemo(() => {
-    if (activeToken === 'All') return graphData;
+    // 1. FILTERING (Only filter if not 'All')
+    let filteredLinks = graphData.links;
+    if (activeToken !== 'All') {
+      filteredLinks = graphData.links.filter(link => (link.symbol || 'Tokens') === activeToken);
+    }
 
-    // 1. Keep only the links that match the selected token
-    const filteredLinks = graphData.links.filter(link => (link.symbol || 'Tokens') === activeToken);
+    // 2. DEDUPLICATION (Fixes the double transaction bug)
+    // Create a Set to remember which transaction hashes we've already drawn
+    const seenHashes = new Set();
+    filteredLinks = filteredLinks.filter(link => {
+      if (seenHashes.has(link.hash)) {
+        return false; // We already drew this exact transaction, skip it!
+      }
+      seenHashes.add(link.hash);
+      return true;
+    });
 
-    // 2. Find which nodes are still connected by these filtered links
+    // 3. NODE CLEANUP (Keep only nodes connected to the remaining links)
     const connectedNodeIds = new Set();
     filteredLinks.forEach(link => {
       connectedNodeIds.add(typeof link.source === 'object' ? link.source.id : link.source);
       connectedNodeIds.add(typeof link.target === 'object' ? link.target.id : link.target);
     });
 
-    // 3. Keep only the nodes that are still connected
     const filteredNodes = graphData.nodes.filter(node => connectedNodeIds.has(node.id));
 
+    // 4. MULTIGRAPH CURVATURE MATH (Now runs unconditionally!)
     const pairCounts = {};
-    
+
     // Pass 1: Count how many links exist between the exact same two wallets
     filteredLinks.forEach(link => {
       const s = typeof link.source === 'object' ? link.source.id : link.source;
       const t = typeof link.target === 'object' ? link.target.id : link.target;
-      // Sort them so A->B and B->A are treated as the same edge path
-      const pair = s < t ? `${s}-${t}` : `${t}-${s}`; 
-      
+      const pair = s < t ? `${s}-${t}` : `${t}-${s}`;
+
       if (!pairCounts[pair]) pairCounts[pair] = 0;
       pairCounts[pair]++;
-      link.pairIndex = pairCounts[pair]; // Assign an ID (1st link, 2nd link, etc.)
+      link.pairIndex = pairCounts[pair];
     });
 
     // Pass 2: Attach the total count to the link so the graph knows how far to bend it
@@ -236,7 +247,7 @@ function App() {
               <span className="font-mono font-bold text-blue-400">{stats.linkCount}</span>
             </div>
 
-            <div 
+            <div
               className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50 mt-2 cursor-pointer hover:bg-gray-700/80 transition-colors"
               onClick={() => {
                 if (stats.maxTx) {
@@ -252,7 +263,7 @@ function App() {
               </span>
             </div>
 
-            <div 
+            <div
               className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50 mt-4 cursor-pointer hover:bg-gray-700/80 transition-colors"
               onClick={() => {
                 if (stats.mostActiveWallet) {
@@ -264,7 +275,7 @@ function App() {
               <span className="font-mono text-gray-300 text-xs truncate block w-full" title={stats.mostActiveWallet}>
                 {stats.mostActiveWallet.substring(0, 8)}...{stats.mostActiveWallet.substring(38)}
               </span>
-              
+
               <span className="text-xs text-gray-500 mt-1 block">
                 {stats.maxDegree} direct connections
               </span>
@@ -292,20 +303,20 @@ function App() {
           graphData.nodes.length > 0 && (
 
             <ForceGraph2D
-              ref = {fgRef}
+              ref={fgRef}
               graphData={displayGraph}
               nodeLabel="id"
               linkLabel={(link) => `${link.value} ${link.symbol || 'Tokens'}`}
 
               linkCurvature={link => {
-              // If it's the only transaction between them, keep it a straight line
-              if (link.totalPairs <= 1) return 0; 
-              
-              // If multiple, alternate the bending: +0.15, -0.15, +0.30, -0.30...
-              const offset = (link.pairIndex % 2 === 0 ? 1 : -1) * (Math.floor(link.pairIndex / 2) * 0.15);
-              return offset;
-            }}
-              
+                // If it's the only transaction between them, keep it a straight line
+                if (link.totalPairs <= 1) return 0;
+
+                // If multiple, alternate the bending: +0.15, -0.15, +0.30, -0.30...
+                const offset = (link.pairIndex % 2 === 0 ? 1 : -1) * (Math.floor(link.pairIndex / 2) * 0.15);
+                return offset;
+              }}
+
               // --- NEW: Color coding based on algorithmic flags ---
               // If the node is part of a cycle, make it Red. Otherwise, Blue.
               nodeColor={(node) => node.isCycle ? '#ef4444' : '#3b82f6'}
