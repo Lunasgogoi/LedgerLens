@@ -3,8 +3,11 @@ import axios from 'axios'
 import ForceGraph2D from 'react-force-graph-2d'
 
 
+
 function App() {
-  const [address, setAddress] = useState('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045') // Defaults to Vitalik
+  const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
+  const [address, setAddress] = useState('') // Defaults to Vitalik
   const [graphData, setGraphData] = useState({ nodes: [], links: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -74,10 +77,7 @@ function App() {
     try {
       // Hit our Redis-cached backend!
       // Use the live URL if it exists, otherwise fall back to localhost for local testing
-      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-
-      // Change your fetch calls to use the variable:
-      const response = await axios.get(`${API_BASE_URL}/api/wallet/${address}`);
+      const response = await axios.get(`${API_BASE_URL}/api/wallet/${node.id}`);
 
       if (response.data.message !== "No transactions found") {
         const newGraphData = response.data.graph;
@@ -231,36 +231,42 @@ function App() {
       )}
 
       {/* The Physics Graph Canvas */}
-      <div className="flex-grow">
-        {graphData.nodes.length > 0 && (
+      <div className="flex-grow flex items-center justify-center">
+        {graphData.nodes.length === 0 && !loading && !error ? (
+          <div className="text-gray-500 text-lg flex flex-col items-center">
+            <svg className="w-16 h-16 mb-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            <p>Enter a 0x wallet address to map its network</p>
+          </div>
+        ) : (
+          graphData.nodes.length > 0 && (
 
-          <ForceGraph2D
-            graphData={displayGraph}
-            nodeLabel="id"
-            linkLabel={(link) => `${link.value} ${link.symbol || 'Tokens'}`}
+            <ForceGraph2D
+              graphData={displayGraph}
+              nodeLabel="id"
+              linkLabel={(link) => `${link.value} ${link.symbol || 'Tokens'}`}
 
-            // --- NEW: Color coding based on algorithmic flags ---
-            // If the node is part of a cycle, make it Red. Otherwise, Blue.
-            nodeColor={(node) => node.isCycle ? '#ef4444' : '#3b82f6'}
+              // --- NEW: Color coding based on algorithmic flags ---
+              // If the node is part of a cycle, make it Red. Otherwise, Blue.
+              nodeColor={(node) => node.isCycle ? '#ef4444' : '#3b82f6'}
 
-            // If the transaction is part of a loop, make it Red. Otherwise, Grey.
-            linkColor={(link) => link.isCycle ? '#ef4444' : '#4b5563'}
+              // If the transaction is part of a loop, make it Red. Otherwise, Grey.
+              linkColor={(link) => link.isCycle ? '#ef4444' : '#4b5563'}
 
-            linkWidth={(link) => link.isCycle ? 2.5 : 1.5} // Make suspicious lines thicker
+              linkWidth={(link) => link.isCycle ? 2.5 : 1.5} // Make suspicious lines thicker
 
-            linkDirectionalParticles={3}
-            linkDirectionalParticleSpeed={0.005}
-            // Make the moving particles red on bad links too!
-            linkDirectionalParticleColor={(link) => link.isCycle ? '#ef4444' : '#9ca3af'}
-            linkDirectionalParticleWidth={2}
-            linkDirectionalArrowLength={3.5}
-            linkDirectionalArrowRelPos={1}
-            enableNodeDrag={true}
-            enableZoomPanInteraction={true}
-            onNodeClick={handleNodeClick}
-            onNodeHover={node => document.body.style.cursor = node ? 'pointer' : null}
-          />
-
+              linkDirectionalParticles={3}
+              linkDirectionalParticleSpeed={0.005}
+              // Make the moving particles red on bad links too!
+              linkDirectionalParticleColor={(link) => link.isCycle ? '#ef4444' : '#9ca3af'}
+              linkDirectionalParticleWidth={2}
+              linkDirectionalArrowLength={3.5}
+              linkDirectionalArrowRelPos={1}
+              enableNodeDrag={true}
+              enableZoomPanInteraction={true}
+              onNodeClick={handleNodeClick}
+              onNodeHover={node => document.body.style.cursor = node ? 'pointer' : null}
+            />
+          )
         )}
 
       </div>
