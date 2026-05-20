@@ -39,14 +39,18 @@ function App() {
 
   const fetchGraphData = async () => {
     if (!address) return;
-    
+
     setLoading(true);
     setError(null);
-    
+
     try {
       // Hitting your local backend!
-      const response = await axios.get(`http://localhost:5000/api/wallet/${address}`);
-      
+      // Use the live URL if it exists, otherwise fall back to localhost for local testing
+      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
+      // Change your fetch calls to use the variable:
+      const response = await axios.get(`${API_BASE_URL}/api/wallet/${address}`);
+
       if (response.data.message === "No transactions found") {
         setError("No transactions found for this wallet.");
         setGraphData({ nodes: [], links: [] });
@@ -69,8 +73,12 @@ function App() {
     setLoading(true);
     try {
       // Hit our Redis-cached backend!
-      const response = await axios.get(`http://localhost:5000/api/wallet/${node.id}`);
-      
+      // Use the live URL if it exists, otherwise fall back to localhost for local testing
+      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
+      // Change your fetch calls to use the variable:
+      const response = await axios.get(`${API_BASE_URL}/api/wallet/${address}`);
+
       if (response.data.message !== "No transactions found") {
         const newGraphData = response.data.graph;
 
@@ -143,18 +151,18 @@ function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col font-sans">
-      
+
       {/* Top Search Bar */}
       <div className="absolute z-10 top-0 left-0 w-full p-4 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 flex justify-center items-center gap-4">
         <h1 className="text-xl font-bold text-blue-400">LedgerLens</h1>
-        <input 
-          type="text" 
+        <input
+          type="text"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           className="w-96 px-4 py-2 bg-gray-800 border border-gray-700 rounded-md text-white focus:outline-none focus:border-blue-500"
           placeholder="Enter 0x Wallet Address..."
         />
-        <button 
+        <button
           onClick={fetchGraphData}
           disabled={loading}
           className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-md font-semibold transition-colors disabled:opacity-50"
@@ -166,13 +174,13 @@ function App() {
       {/* Analytics Sidebar */}
       {stats && (
         <div className="absolute z-10 top-24 right-6 w-80 bg-gray-900/80 backdrop-blur-md border border-gray-700 rounded-xl p-5 shadow-2xl text-sm">
-        <h2 className="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2">Network Analytics</h2>
-          
+          <h2 className="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2">Network Analytics</h2>
+
           {/* NEW: Token Filter Dropdown */}
           <div className="mb-4">
             <label className="block text-xs text-gray-400 uppercase tracking-wider mb-1">Filter by Asset</label>
-            <select 
-              value={activeToken} 
+            <select
+              value={activeToken}
               onChange={(e) => setActiveToken(e.target.value)}
               className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
             >
@@ -182,13 +190,13 @@ function App() {
             </select>
           </div>
           <h2 className="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2">Network Analytics</h2>
-          
+
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <span className="text-gray-400">Wallets Tracked</span>
               <span className="font-mono font-bold text-blue-400">{stats.nodeCount}</span>
             </div>
-            
+
             <div className="flex justify-between items-center">
               <span className="text-gray-400">Total Transactions</span>
               <span className="font-mono font-bold text-blue-400">{stats.linkCount}</span>
@@ -213,7 +221,7 @@ function App() {
           </div>
         </div>
       )}
-      
+
 
       {/* Error Message */}
       {error && (
@@ -226,20 +234,20 @@ function App() {
       <div className="flex-grow">
         {graphData.nodes.length > 0 && (
 
-         <ForceGraph2D
+          <ForceGraph2D
             graphData={displayGraph}
             nodeLabel="id"
             linkLabel={(link) => `${link.value} ${link.symbol || 'Tokens'}`}
-            
+
             // --- NEW: Color coding based on algorithmic flags ---
             // If the node is part of a cycle, make it Red. Otherwise, Blue.
-            nodeColor={(node) => node.isCycle ? '#ef4444' : '#3b82f6'} 
-            
+            nodeColor={(node) => node.isCycle ? '#ef4444' : '#3b82f6'}
+
             // If the transaction is part of a loop, make it Red. Otherwise, Grey.
-            linkColor={(link) => link.isCycle ? '#ef4444' : '#4b5563'} 
-            
+            linkColor={(link) => link.isCycle ? '#ef4444' : '#4b5563'}
+
             linkWidth={(link) => link.isCycle ? 2.5 : 1.5} // Make suspicious lines thicker
-            
+
             linkDirectionalParticles={3}
             linkDirectionalParticleSpeed={0.005}
             // Make the moving particles red on bad links too!
@@ -250,7 +258,7 @@ function App() {
             enableNodeDrag={true}
             enableZoomPanInteraction={true}
             onNodeClick={handleNodeClick}
-            onNodeHover={node => document.body.style.cursor = node ? 'pointer' : null} 
+            onNodeHover={node => document.body.style.cursor = node ? 'pointer' : null}
           />
 
         )}
