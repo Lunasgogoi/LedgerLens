@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import axios from 'axios'
 import ForceGraph2D from 'react-force-graph-2d'
 
@@ -6,6 +6,7 @@ import ForceGraph2D from 'react-force-graph-2d'
 
 function App() {
   const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+  const fgRef = useRef();
 
   const [address, setAddress] = useState('') // Defaults to Vitalik
   const [graphData, setGraphData] = useState({ nodes: [], links: [] })
@@ -13,6 +14,17 @@ function App() {
   const [error, setError] = useState(null)
   // Add this under your existing state variables
   const [activeToken, setActiveToken] = useState('All');
+
+  const handleFocusNode = (nodeId) => {
+    // Find the exact coordinates of the target node
+    const node = displayGraph.nodes.find(n => n.id === nodeId);
+    if (node && fgRef.current) {
+      // centerAt(x, y, transitionDurationInMs)
+      fgRef.current.centerAt(node.x, node.y, 1000);
+      // zoom(zoomLevel, transitionDurationInMs)
+      fgRef.current.zoom(6, 1000); 
+    }
+  };
 
   // Dynamically calculate which tokens are currently on the screen
   const availableTokens = useMemo(() => {
@@ -36,6 +48,28 @@ function App() {
 
     // 3. Keep only the nodes that are still connected
     const filteredNodes = graphData.nodes.filter(node => connectedNodeIds.has(node.id));
+
+    const pairCounts = {};
+    
+    // Pass 1: Count how many links exist between the exact same two wallets
+    filteredLinks.forEach(link => {
+      const s = typeof link.source === 'object' ? link.source.id : link.source;
+      const t = typeof link.target === 'object' ? link.target.id : link.target;
+      // Sort them so A->B and B->A are treated as the same edge path
+      const pair = s < t ? `${s}-${t}` : `${t}-${s}`; 
+      
+      if (!pairCounts[pair]) pairCounts[pair] = 0;
+      pairCounts[pair]++;
+      link.pairIndex = pairCounts[pair]; // Assign an ID (1st link, 2nd link, etc.)
+    });
+
+    // Pass 2: Attach the total count to the link so the graph knows how far to bend it
+    filteredLinks.forEach(link => {
+      const s = typeof link.source === 'object' ? link.source.id : link.source;
+      const t = typeof link.target === 'object' ? link.target.id : link.target;
+      const pair = s < t ? `${s}-${t}` : `${t}-${s}`;
+      link.totalPairs = pairCounts[pair];
+    });
 
     return { nodes: filteredNodes, links: filteredLinks };
   }, [graphData, activeToken]);
@@ -202,18 +236,35 @@ function App() {
               <span className="font-mono font-bold text-blue-400">{stats.linkCount}</span>
             </div>
 
-            <div className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50 mt-2">
+            <div 
+              className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50 mt-2 cursor-pointer hover:bg-gray-700/80 transition-colors"
+              onClick={() => {
+                if (stats.maxTx) {
+                  // react-force-graph mutates the source string into an object, so we check for both
+                  const senderId = typeof stats.maxTx.source === 'object' ? stats.maxTx.source.id : stats.maxTx.source;
+                  handleFocusNode(senderId);
+                }
+              }}
+            >
               <span className="block text-xs text-gray-500 uppercase tracking-wider mb-1">Highest Value Transfer</span>
               <span className="font-mono text-green-400 font-bold text-lg">
                 {stats.maxTx.value} {stats.maxTx.symbol || 'Tokens'}
               </span>
             </div>
 
-            <div className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50">
+            <div 
+              className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50 mt-4 cursor-pointer hover:bg-gray-700/80 transition-colors"
+              onClick={() => {
+                if (stats.mostActiveWallet) {
+                  handleFocusNode(stats.mostActiveWallet);
+                }
+              }}
+            >
               <span className="block text-xs text-gray-500 uppercase tracking-wider mb-1">Central Hub (Most Active)</span>
               <span className="font-mono text-gray-300 text-xs truncate block w-full" title={stats.mostActiveWallet}>
                 {stats.mostActiveWallet.substring(0, 8)}...{stats.mostActiveWallet.substring(38)}
               </span>
+              
               <span className="text-xs text-gray-500 mt-1 block">
                 {stats.maxDegree} direct connections
               </span>
@@ -241,10 +292,20 @@ function App() {
           graphData.nodes.length > 0 && (
 
             <ForceGraph2D
+              ref = {fgRef}
               graphData={displayGraph}
               nodeLabel="id"
               linkLabel={(link) => `${link.value} ${link.symbol || 'Tokens'}`}
 
+              linkCurvature={link => {
+              // If it's the only transaction between them, keep it a straight line
+              if (link.totalPairs <= 1) return 0; 
+              
+              // If multiple, alternate the bending: +0.15, -0.15, +0.30, -0.30...
+              const offset = (link.pairIndex % 2 === 0 ? 1 : -1) * (Math.floor(link.pairIndex / 2) * 0.15);
+              return offset;
+            }}
+              
               // --- NEW: Color coding based on algorithmic flags ---
               // If the node is part of a cycle, make it Red. Otherwise, Blue.
               nodeColor={(node) => node.isCycle ? '#ef4444' : '#3b82f6'}
