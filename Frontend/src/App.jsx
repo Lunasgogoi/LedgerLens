@@ -1,0 +1,264 @@
+import { useState, useMemo } from 'react'
+import axios from 'axios'
+import ForceGraph2D from 'react-force-graph-2d'
+
+
+function App() {
+  const [address, setAddress] = useState('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045') // Defaults to Vitalik
+  const [graphData, setGraphData] = useState({ nodes: [], links: [] })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  // Add this under your existing state variables
+  const [activeToken, setActiveToken] = useState('All');
+
+  // Dynamically calculate which tokens are currently on the screen
+  const availableTokens = useMemo(() => {
+    const tokens = new Set(graphData.links.map(link => link.symbol || 'Tokens'));
+    return ['All', ...Array.from(tokens)];
+  }, [graphData.links]);
+
+  // Create a computed version of the graph based on the selected filter
+  const displayGraph = useMemo(() => {
+    if (activeToken === 'All') return graphData;
+
+    // 1. Keep only the links that match the selected token
+    const filteredLinks = graphData.links.filter(link => (link.symbol || 'Tokens') === activeToken);
+
+    // 2. Find which nodes are still connected by these filtered links
+    const connectedNodeIds = new Set();
+    filteredLinks.forEach(link => {
+      connectedNodeIds.add(typeof link.source === 'object' ? link.source.id : link.source);
+      connectedNodeIds.add(typeof link.target === 'object' ? link.target.id : link.target);
+    });
+
+    // 3. Keep only the nodes that are still connected
+    const filteredNodes = graphData.nodes.filter(node => connectedNodeIds.has(node.id));
+
+    return { nodes: filteredNodes, links: filteredLinks };
+  }, [graphData, activeToken]);
+
+  const fetchGraphData = async () => {
+    if (!address) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Hitting your local backend!
+      const response = await axios.get(`http://localhost:5000/api/wallet/${address}`);
+      
+      if (response.data.message === "No transactions found") {
+        setError("No transactions found for this wallet.");
+        setGraphData({ nodes: [], links: [] });
+      } else {
+        setGraphData(response.data.graph);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Failed to fetch data. Check if your backend is running.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Add this right below fetchGraphData
+  const handleNodeClick = async (node) => {
+    // Prevent re-fetching the root node
+    if (node.id === address) return;
+
+    setLoading(true);
+    try {
+      // Hit our Redis-cached backend!
+      const response = await axios.get(`http://localhost:5000/api/wallet/${node.id}`);
+      
+      if (response.data.message !== "No transactions found") {
+        const newGraphData = response.data.graph;
+
+        setGraphData(prevData => {
+          // 1. Merge Nodes (Using a Map to prevent duplicates)
+          const nodeMap = new Map(prevData.nodes.map(n => [n.id, n]));
+          newGraphData.nodes.forEach(n => {
+            if (!nodeMap.has(n.id)) nodeMap.set(n.id, n);
+          });
+
+          // 2. Merge Links (Using transaction hashes to prevent duplicate lines)
+          const existingLinks = new Set(prevData.links.map(l => l.hash));
+          const uniqueNewLinks = newGraphData.links.filter(l => !existingLinks.has(l.hash));
+
+          return {
+            nodes: Array.from(nodeMap.values()),
+            links: [...prevData.links, ...uniqueNewLinks]
+          };
+        });
+      }
+    } catch (err) {
+      console.error("Failed to expand node:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- REAL-TIME GRAPH ANALYTICS ---
+  const getNetworkStats = () => {
+    if (graphData.nodes.length === 0) return null;
+
+    let maxTx = { value: 0 };
+    const degreeMap = {}; // Tracks how many connections each wallet has
+
+    graphData.links.forEach(link => {
+      // 1. Find the biggest transaction
+      if (parseFloat(link.value) > parseFloat(maxTx.value)) {
+        maxTx = link;
+      }
+
+      // 2. Calculate Degree Centrality (who is the busiest hub?)
+      // Note: ForceGraph changes source/target from strings to objects after rendering, so we handle both
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+
+      degreeMap[sourceId] = (degreeMap[sourceId] || 0) + 1;
+      degreeMap[targetId] = (degreeMap[targetId] || 0) + 1;
+    });
+
+    // Find the wallet with the highest degree (most connections)
+    let mostActiveWallet = null;
+    let maxDegree = 0;
+    for (const [wallet, count] of Object.entries(degreeMap)) {
+      if (count > maxDegree) {
+        maxDegree = count;
+        mostActiveWallet = wallet;
+      }
+    }
+
+    return {
+      nodeCount: graphData.nodes.length,
+      linkCount: graphData.links.length,
+      maxTx,
+      mostActiveWallet,
+      maxDegree
+    };
+  };
+
+  const stats = getNetworkStats();
+
+  return (
+    <div className="h-screen w-screen flex flex-col font-sans">
+      
+      {/* Top Search Bar */}
+      <div className="absolute z-10 top-0 left-0 w-full p-4 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 flex justify-center items-center gap-4">
+        <h1 className="text-xl font-bold text-blue-400">LedgerLens</h1>
+        <input 
+          type="text" 
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          className="w-96 px-4 py-2 bg-gray-800 border border-gray-700 rounded-md text-white focus:outline-none focus:border-blue-500"
+          placeholder="Enter 0x Wallet Address..."
+        />
+        <button 
+          onClick={fetchGraphData}
+          disabled={loading}
+          className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-md font-semibold transition-colors disabled:opacity-50"
+        >
+          {loading ? 'Scanning...' : 'Analyze'}
+        </button>
+      </div>
+
+      {/* Analytics Sidebar */}
+      {stats && (
+        <div className="absolute z-10 top-24 right-6 w-80 bg-gray-900/80 backdrop-blur-md border border-gray-700 rounded-xl p-5 shadow-2xl text-sm">
+        <h2 className="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2">Network Analytics</h2>
+          
+          {/* NEW: Token Filter Dropdown */}
+          <div className="mb-4">
+            <label className="block text-xs text-gray-400 uppercase tracking-wider mb-1">Filter by Asset</label>
+            <select 
+              value={activeToken} 
+              onChange={(e) => setActiveToken(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
+            >
+              {availableTokens.map(token => (
+                <option key={token} value={token}>{token}</option>
+              ))}
+            </select>
+          </div>
+          <h2 className="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2">Network Analytics</h2>
+          
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-400">Wallets Tracked</span>
+              <span className="font-mono font-bold text-blue-400">{stats.nodeCount}</span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-gray-400">Total Transactions</span>
+              <span className="font-mono font-bold text-blue-400">{stats.linkCount}</span>
+            </div>
+
+            <div className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50 mt-2">
+              <span className="block text-xs text-gray-500 uppercase tracking-wider mb-1">Highest Value Transfer</span>
+              <span className="font-mono text-green-400 font-bold text-lg">
+                {stats.maxTx.value} {stats.maxTx.symbol || 'Tokens'}
+              </span>
+            </div>
+
+            <div className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50">
+              <span className="block text-xs text-gray-500 uppercase tracking-wider mb-1">Central Hub (Most Active)</span>
+              <span className="font-mono text-gray-300 text-xs truncate block w-full" title={stats.mostActiveWallet}>
+                {stats.mostActiveWallet.substring(0, 8)}...{stats.mostActiveWallet.substring(38)}
+              </span>
+              <span className="text-xs text-gray-500 mt-1 block">
+                {stats.maxDegree} direct connections
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+      
+
+      {/* Error Message */}
+      {error && (
+        <div className="absolute z-10 top-20 left-1/2 -translate-x-1/2 bg-red-500/20 text-red-400 px-4 py-2 rounded border border-red-500/50">
+          {error}
+        </div>
+      )}
+
+      {/* The Physics Graph Canvas */}
+      <div className="flex-grow">
+        {graphData.nodes.length > 0 && (
+
+         <ForceGraph2D
+            graphData={displayGraph}
+            nodeLabel="id"
+            linkLabel={(link) => `${link.value} ${link.symbol || 'Tokens'}`}
+            
+            // --- NEW: Color coding based on algorithmic flags ---
+            // If the node is part of a cycle, make it Red. Otherwise, Blue.
+            nodeColor={(node) => node.isCycle ? '#ef4444' : '#3b82f6'} 
+            
+            // If the transaction is part of a loop, make it Red. Otherwise, Grey.
+            linkColor={(link) => link.isCycle ? '#ef4444' : '#4b5563'} 
+            
+            linkWidth={(link) => link.isCycle ? 2.5 : 1.5} // Make suspicious lines thicker
+            
+            linkDirectionalParticles={3}
+            linkDirectionalParticleSpeed={0.005}
+            // Make the moving particles red on bad links too!
+            linkDirectionalParticleColor={(link) => link.isCycle ? '#ef4444' : '#9ca3af'}
+            linkDirectionalParticleWidth={2}
+            linkDirectionalArrowLength={3.5}
+            linkDirectionalArrowRelPos={1}
+            enableNodeDrag={true}
+            enableZoomPanInteraction={true}
+            onNodeClick={handleNodeClick}
+            onNodeHover={node => document.body.style.cursor = node ? 'pointer' : null} 
+          />
+
+        )}
+
+      </div>
+
+    </div>
+  )
+}
+
+export default App
