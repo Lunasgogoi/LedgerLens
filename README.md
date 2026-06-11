@@ -2,7 +2,9 @@
 
 **LedgerLens** is a full-stack, AI-driven blockchain forensics and data visualization platform. It transforms raw, tabular Ethereum transaction histories into interactive, force-directed network graphs, allowing users to visually track capital flows, detect malicious wash-trading rings, and identify key network participants using machine learning.
 
-![LedgerLens Banner]([https://via.placeholder.com/1000x400?text=LedgerLens+Network+Visualization](https://res.cloudinary.com/dkzrxdwmq/image/upload/v1781182445/Screenshot_2026-06-11_182347_zx0vls.png)) ## ✨ Key Features
+[![LedgerLens Banner](https://res.cloudinary.com/dkzrxdwmq/image/upload/v1781182738/Screenshot_2026-06-11_182825_hqqoeo.png)](https://your-target-url.com)
+
+## ✨ Key Features
 
 * **Interactive Force-Directed Graphing:** Visualizes complex transaction webs using a custom 2D physics engine, supporting dynamic node clustering, panning, and zooming.
 * **Algorithmic Wash-Trade Detection:** Implements a custom Depth-First Search (DFS) algorithm on the backend to dynamically detect and visually flag cyclic financial anomalies (e.g., tumbling rings and wash trading) in real-time.
