@@ -3,6 +3,7 @@ import axios from 'axios'
 import ForceGraph2D from 'react-force-graph-2d'
 
 
+// Add this right below your other useState declarations
 
 function App() {
   const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -12,17 +13,21 @@ function App() {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [highlightedNode, setHighlightedNode] = useState(null);
   // Add this under your existing state variables
   const [activeToken, setActiveToken] = useState('All');
 
   const handleFocusNode = (nodeId) => {
-    // Find the exact coordinates of the target node
     const node = displayGraph.nodes.find(n => n.id === nodeId);
     if (node && fgRef.current) {
-      // centerAt(x, y, transitionDurationInMs)
       fgRef.current.centerAt(node.x, node.y, 1000);
-      // zoom(zoomLevel, transitionDurationInMs)
       fgRef.current.zoom(6, 1000);
+
+      // --- NEW: Trigger the visual highlight ---
+      setHighlightedNode(nodeId);
+      setTimeout(() => {
+        setHighlightedNode(null); // Turn it off after 2 seconds
+      }, 1500);
     }
   };
 
@@ -33,6 +38,7 @@ function App() {
   }, [graphData.links]);
 
   // Create a computed version of the graph based on the selected filter
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const displayGraph = useMemo(() => {
     // 1. FILTERING (Only filter if not 'All')
     let filteredLinks = graphData.links;
@@ -293,7 +299,7 @@ function App() {
       )}
 
       {/* The Physics Graph Canvas */}
-      <div className="flex-grow flex items-center justify-center">
+      <div className="grow flex items-center justify-center">
         {graphData.nodes.length === 0 && !loading && !error ? (
           <div className="text-gray-500 text-lg flex flex-col items-center">
             <svg className="w-16 h-16 mb-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
@@ -307,28 +313,50 @@ function App() {
               graphData={displayGraph}
               nodeLabel="id"
               linkLabel={(link) => `${link.value} ${link.symbol || 'Tokens'}`}
-
               linkCurvature={link => {
-                // If it's the only transaction between them, keep it a straight line
                 if (link.totalPairs <= 1) return 0;
-
-                // If multiple, alternate the bending: +0.15, -0.15, +0.30, -0.30...
                 const offset = (link.pairIndex % 2 === 0 ? 1 : -1) * (Math.floor(link.pairIndex / 2) * 0.15);
                 return offset;
               }}
 
-              // --- NEW: Color coding based on algorithmic flags ---
-              // If the node is part of a cycle, make it Red. Otherwise, Blue.
-              nodeColor={(node) => node.isCycle ? '#ef4444' : '#3b82f6'}
+              // --- Updated Elegant Visual Flags ---
+              nodeColor={(node) => {
+                // Priority 0: Is the graph currently in "flash" mode and is this NOT the target?
+                // Make all other nodes transparent faded blue.
+                if (highlightedNode && node.id !== highlightedNode) {
+                  return 'rgba(59, 130, 246, 0.1)'; // Barely visible translucent blue
+                }
 
-              // If the transaction is part of a loop, make it Red. Otherwise, Grey.
+                // Priority 1: Is this the FLASH TARGET? Make it glowing Vibrant Teal!
+                if (node.id === highlightedNode) return '#14b8a6'; // Vibrant Teal glow
+
+                // Priority 2: DFS Cycle (preserve bad loop indicators)
+                if (node.isCycle) return '#ef4444'; // Red
+
+                // Priority 3: Color based on ML Behavioral Profiles
+                if (node.profile === 'Whale') return '#fbbf24'; // Gold Whale
+                if (node.profile === 'Bot') return '#9ca3af';   // Grey Bot
+
+                // Default: Standard Retail User
+                return '#3b82f6'; // Blue
+              }}
+
+              nodeVal={(node) => {
+                // --- FIXED SIZES ---
+                // Give it a temporary size bump while it's flashing
+                if (node.id === highlightedNode) return 5; // Smaller size 5 highlight (was 8)
+
+                // Regular sizes, scaled down to look elegant again.
+                if (node.profile === 'Whale') return 3;   // Whales are 3x normal
+                if (node.profile === 'Bot') return 0.5;   // Bots are tiny
+                return 1.5;                               // Retail is standard
+              }}
+
+              // ... keep linkColor, widths, particles, onNodeClick, onNodeHover exactly the same
               linkColor={(link) => link.isCycle ? '#ef4444' : '#4b5563'}
-
-              linkWidth={(link) => link.isCycle ? 2.5 : 1.5} // Make suspicious lines thicker
-
+              linkWidth={(link) => link.isCycle ? 2.5 : 1.5}
               linkDirectionalParticles={3}
               linkDirectionalParticleSpeed={0.005}
-              // Make the moving particles red on bad links too!
               linkDirectionalParticleColor={(link) => link.isCycle ? '#ef4444' : '#9ca3af'}
               linkDirectionalParticleWidth={2}
               linkDirectionalArrowLength={3.5}
